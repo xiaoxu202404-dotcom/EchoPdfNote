@@ -1,0 +1,14 @@
+{
+  "name": "pdf-audio-server",
+  "version": "1.0.0",
+  "description": "PDF Audio Annotation Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "multer": "^1.4.2",
+    "cors": "^2.8.5"
+  }
+}

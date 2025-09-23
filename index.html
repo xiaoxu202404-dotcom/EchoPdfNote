@@ -1,0 +1,2446 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF阅读器</title>
+    <meta charset="UTF-8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+    <style>
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .toolbar {
+            position: fixed;
+            top: -100%;  /* 默认隐藏在屏幕外 */
+            left: 50%;
+            transform: translateX(-50%);
+            width: auto;
+            max-width: 95%;
+            background: rgba(248, 249, 250, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            border: 1px solid rgba(233, 236, 239, 0.8);
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            gap: 12px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            transition: top 0.3s ease;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .toolbar.expanded {
+            top: 10px;  /* 显示在顶部 */
+        }
+        
+        .toolbar-toggle {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 105, 180, 0.8);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 1001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease, background-color 0.3s;
+        }
+        
+        .toolbar-toggle:hover {
+            transform: scale(1.1);
+            background: rgba(255, 105, 180, 1);
+        }
+        
+        .toolbar-toggle.active {
+            background: rgba(255, 20, 147, 0.9);
+        }
+        #pdf-container {
+            position: relative;
+            border: 1px solid #ccc;
+            overflow: auto;
+            transition: transform 0.2s ease;
+            transform-origin: top left;
+            width: 100%;
+            height: 100vh;
+        }
+        #pdf-canvas {
+            width: 100%;
+        }
+        .progress-bar {
+            position: fixed;
+            top: 40px;
+            left: 0;
+            height: 3px;
+            background: linear-gradient(to right, #FF69B4, #FF1493);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            transition: width 0.3s;
+            z-index: 1001;
+        }
+        .audio-note {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-color: rgba(255, 165, 0, 0.3);
+            border: 1px solid rgba(255, 165, 0, 0.7);
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+            transform: translate(-50%, -50%);
+        }
+        .audio-note:hover {
+            background-color: rgba(255, 165, 0, 0.7);
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+        }
+        .page-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+        .recording-timer {
+            color: red;
+            margin-left: 10px;
+            display: none;
+        }
+        button {
+            padding: 8px 16px;
+            background: linear-gradient(to bottom, #FF69B4, #FF1493);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(255, 105, 180, 0.3);
+        }
+        #stop-recording {
+            background-color: #ff4444;
+            display: none;
+        }
+        #stop-recording:hover {
+            background-color: #ff0000;
+        }
+        #save-pdf {
+            background-color: #FF69B4;
+        }
+        #save-pdf:hover {
+            background-color: #FF1493;
+        }
+        .audio-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            z-index: 1001;
+            min-width: 300px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .audio-controls audio {
+            height: 30px;
+        }
+        .audio-title {
+            color: white;
+            margin-bottom: 10px;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .audio-duration {
+            color: #aaa;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .volume-meter {
+            width: 200px;
+            height: 10px;
+            background-color: #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-left: 10px;
+            display: none;
+        }
+        .volume-level {
+            width: 0%;
+            height: 100%;
+            background-color: #FF69B4;
+            transition: width 0.1s;
+        }
+        .playback-controls {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+            justify-content: center;
+        }
+        .playback-controls button {
+            padding: 4px 12px;
+            background: #666;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .playback-controls button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        .playback-controls button.active {
+            background: #FF69B4 !important;
+            box-shadow: 0 2px 4px rgba(255, 105, 180, 0.3);
+        }
+        .outline-panel {
+            position: fixed;
+            right: -300px;
+            top: 0;
+            width: 300px;
+            height: 100%;
+            background: white;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.2);
+            transition: right 0.3s;
+            z-index: 1000;
+        }
+        .outline-panel.show {
+            right: 0;
+        }
+        .outline-header {
+            padding: 10px;
+            background: #f5f5f5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .outline-content {
+            padding: 10px;
+            overflow-y: auto;
+            height: calc(100% - 50px);
+        }
+        .outline-item {
+            padding: 5px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .outline-item:hover {
+            background: #f5f5f5;
+        }
+        .floating-btn {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #FF69B4;
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            z-index: 999;
+        }
+        .floating-btn:hover {
+            background: #FF1493;
+        }
+        #page-input {
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .shortcut-hint {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            display: none;
+        }
+        .shortcut-hint.show {
+            display: block;
+        }
+        .text-note {
+            position: absolute;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #FF69B4;
+            border-radius: 4px;
+            font-size: 14px;
+            line-height: 1.4;
+            max-width: 300px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .text-note:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .text-note-editor {
+            position: absolute;
+            background: white;
+            border: 1px solid #FF69B4;
+            border-radius: 4px;
+            padding: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1001;
+            display: none;
+        }
+        .text-note-editor.show {
+            display: block;
+        }
+        .text-note-editor textarea {
+            width: 300px;
+            height: 100px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: none;
+            margin-bottom: 8px;
+        }
+        .text-note-editor .buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .note-tooltip {
+            position: absolute;
+            max-width: 300px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1001;
+            display: none;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .note-tooltip.show {
+            display: block;
+        }
+        .note-tooltip .markdown-content {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .note-tooltip .markdown-content img {
+            max-width: 100%;
+        }
+        .note-tooltip .note-actions {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 8px;
+        }
+        .note-tooltip .note-actions button {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+        .note-editor {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 600px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1002;
+            display: none;
+        }
+        .note-editor.show {
+            display: block;
+        }
+        .note-editor-header {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .note-editor textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 12px;
+            border: none;
+            resize: vertical;
+            font-family: monospace;
+        }
+        .note-editor-footer {
+            padding: 12px;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .note-editor-popup {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(33, 150, 243, 0.5);
+            border-radius: 6px;
+            padding: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            z-index: 1002;
+            backdrop-filter: blur(8px);
+        }
+
+        .note-editor-popup textarea {
+            width: 300px;
+            min-height: 100px;
+            padding: 8px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.9);
+            resize: vertical;
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+
+        .note-editor-popup .markdown-hint {
+            color: rgba(0, 0, 0, 0.5);
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .note-editor-popup .buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .note-editor-popup .buttons button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .note-editor-popup .buttons button.cancel {
+            background-color: rgba(0, 0, 0, 0.1);
+            color: rgba(0, 0, 0, 0.7);
+        }
+
+        .note-editor-popup .buttons button.save {
+            background-color: rgba(33, 150, 243, 0.9);
+            color: white;
+        }
+
+        .note-container {
+            position: absolute;
+            z-index: 1000;
+            transform-origin: top left;
+        }
+
+        .note-bubble {
+            width: 24px;
+            height: 24px;
+            background-color: rgba(255, 105, 180, 0.4);
+            border: 1px solid rgba(255, 105, 180, 0.6);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            color: rgba(0, 0, 0, 0.7);
+            transition: all 0.2s ease;
+            transform: translate(-50%, -50%);
+        }
+
+        .note-bubble:hover {
+            background-color: rgba(255, 105, 180, 0.6);
+            transform: scale(1.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .note-content {
+            position: absolute;
+            display: none;
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(255, 105, 180, 0.2);
+            border-radius: 6px;
+            padding: 10px;
+            min-width: 200px;
+            max-width: 300px;
+            max-height: 400px;
+            overflow-y: auto;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            font-size: 14px;
+            line-height: 1.5;
+            color: rgba(0, 0, 0, 0.9);
+            cursor: text;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            backdrop-filter: blur(2px);
+        }
+
+        .note-content.show {
+            display: block;
+        }
+
+        .note-content.editing {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+        }
+
+        .note-content textarea {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 105, 180, 0.3);
+        }
+
+        .note-content button {
+            background: rgba(255, 105, 180, 0.8);
+            border: none;
+            padding: 4px 8px;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .note-content button.cancel {
+            background: rgba(0, 0, 0, 0.1);
+            color: rgba(0, 0, 0, 0.7);
+        }
+
+        .note-content::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .note-content::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .note-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 105, 180, 0.2);
+            border-radius: 2px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 16px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .zoom-controls button {
+            padding: 2px 8px;
+            background: rgba(0, 0, 0, 0.1);
+            border: none;
+            border-radius: 3px;
+            color: #333;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .zoom-controls button:hover {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        #zoom-level {
+            min-width: 50px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .resolution-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 16px;
+            background: rgba(240, 240, 240, 0.4);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .resolution-controls button {
+            padding: 2px 8px;
+            background: rgba(255, 105, 180, 0.2);
+            border: none;
+            border-radius: 3px;
+            color: #333;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .resolution-controls button:hover {
+            background: rgba(255, 105, 180, 0.4);
+        }
+
+        #resolution-value {
+            min-width: 30px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: bold;
+            color: #FF69B4;
+        }
+
+        .toolbar button {
+            padding: 6px 12px;
+            background: rgba(255, 105, 180, 0.1);
+            color: #FF69B4;
+            border: 1px solid rgba(255, 105, 180, 0.2);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .toolbar button:hover {
+            background: rgba(255, 105, 180, 0.2);
+            transform: translateY(-1px);
+        }
+
+        #reading-progress {
+            font-size: 14px;
+            color: #666;
+        }
+
+        #pdf-container {
+            transition: transform 0.2s ease;
+            transform-origin: top left;
+        }
+
+        .progress-bar {
+            background: linear-gradient(to right, #FF69B4, #FF1493);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .pdf-link-annotation {
+            background-color: rgba(0, 0, 255, 0.05);
+            border: 1px solid rgba(0, 0, 255, 0.1);
+            border-radius: 2px;
+            transition: background-color 0.2s;
+        }
+        
+        .pdf-link-annotation:hover {
+            background-color: rgba(0, 0, 255, 0.1);
+            box-shadow: 0 0 5px rgba(0, 0, 255, 0.2);
+        }
+
+        .page-control-btns {
+            position: fixed;
+            right: 20px;
+            bottom: 90px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 998;
+        }
+        
+        .page-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 105, 180, 0.2);
+            color: rgba(0, 0, 0, 0.7);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            backdrop-filter: blur(2px);
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .page-btn:hover {
+            background: rgba(255, 105, 180, 0.8);
+            color: white;
+            transform: scale(1.05);
+        }
+
+        /* 快捷标注按钮样式 */
+        .quick-note-btns {
+            position: fixed;
+            right: 20px;
+            bottom: 180px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 998;
+        }
+        
+        .quick-note-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 105, 180, 0.3);
+            color: rgba(0, 0, 0, 0.7);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            backdrop-filter: blur(2px);
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .quick-note-btn:hover {
+            background: rgba(255, 105, 180, 0.8);
+            color: white;
+            transform: scale(1.05);
+        }
+        
+        .quick-note-btn.active {
+            background: rgba(255, 105, 180, 0.8);
+            color: white;
+        }
+
+        /* 添加图片标注相关样式 */
+        .image-note {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background-color: rgba(255, 105, 180, 0.3);
+            border: 1px solid rgba(255, 105, 180, 0.7);
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+            transform: translate(-50%, -50%);
+        }
+
+        .image-note:hover {
+            background-color: rgba(255, 105, 180, 0.7);
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+        }
+
+        .image-preview {
+            position: absolute;
+            background: white;
+            border: 1px solid rgba(255, 105, 180, 0.3);
+            border-radius: 4px;
+            padding: 5px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            z-index: 1001;
+            display: none;
+            max-width: 300px;
+            max-height: 300px;
+        }
+
+        .image-preview img {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+        }
+
+        .image-preview.show {
+            display: block;
+        }
+
+        /* 添加图片放大模态框样式 */
+        #image-modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1003; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: hidden; /* Hide scrollbars initially */
+            background-color: rgba(0, 0, 0, 0.6); /* Slightly less dark background */
+            backdrop-filter: blur(3px); /* Lighter blur */
+            /* display: flex; <- REMOVED: JS will handle setting display to flex when shown */
+            align-items: center; /* Center vertically */
+            justify-content: center; /* Center horizontally */
+            padding: 20px; /* Add some padding */
+            box-sizing: border-box;
+        }
+
+        #modal-image-container {
+            position: relative; /* For potential absolute positioning inside */
+            max-width: 90%;
+            max-height: 90%;
+            overflow: auto; /* Allow scrolling/panning if image overflows */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #modal-image {
+            display: block;
+            max-width: 100%; /* Start by fitting inside container */
+            max-height: 100%;
+            transition: transform 0.2s ease-out; /* Smooth zoom transition */
+            cursor: grab; /* Indicate it's interactive */
+            transform-origin: center center; /* Zoom from center by default */
+        }
+        #modal-image:active {
+            cursor: grabbing;
+        }
+
+        #close-modal {
+            position: absolute;
+            top: 15px;
+            right: 25px;
+            color: #ccc; /* Lighter close button */
+            font-size: 35px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1004;
+            transition: color 0.2s;
+        }
+
+        #close-modal:hover {
+            color: #fff;
+        }
+
+        .note-content pre {
+          background: #f5f5f5;
+          padding: 10px;
+          border-radius: 4px;
+          overflow-x: auto;
+        }
+
+        .note-content code {
+          font-family: monospace;
+          font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="toolbar">
+            <input type="file" id="pdf-file" accept="application/pdf" style="display: none;">
+            <button onclick="document.getElementById('pdf-file').click()">选择PDF</button>
+            <button id="add-note-btn" onclick="toggleAddNote()">添加语音标注</button>
+            <button id="add-text-note">添加文字标注</button>
+            <button id="add-image-note">添加图片标注</button>
+            <button id="stop-recording" style="display: none;">停止录音</button>
+            <span id="recording-timer" class="recording-timer">录音时长: 0秒</span>
+            <div class="page-controls">
+                <button id="prev-page">上一页</button>
+                <input type="number" id="page-input" min="1" style="width: 50px;">
+                <span>/ <span id="page-count">0</span></span>
+                <button id="next-page">下一页</button>
+            </div>
+            <button id="toggle-outline">大纲</button>
+            <span id="reading-progress" style="margin-left: auto;">阅读进度: 0%</span>
+        </div>
+        <div class="progress-bar" id="progress-bar"></div>
+        <div id="pdf-container">
+            <canvas id="pdf-canvas"></canvas>
+        </div>
+        <div class="audio-controls" id="audio-controls">
+            <div class="audio-title">
+                <span>正在播放语音标注</span>
+                <span class="audio-duration">0:00 / 0:00</span>
+            </div>
+            <audio id="audio-player" controls></audio>
+            <div class="playback-controls">
+                <button id="speed-75" onclick="setPlaybackSpeed(0.75)">0.75x</button>
+                <button id="speed-100" onclick="setPlaybackSpeed(1.0)">1.0x</button>
+                <button id="speed-125" onclick="setPlaybackSpeed(1.25)">1.25x</button>
+                <button id="speed-150" onclick="setPlaybackSpeed(1.5)">1.5x</button>
+                <button id="speed-175" onclick="setPlaybackSpeed(1.75)">1.75x</button>
+                <button id="speed-200" onclick="setPlaybackSpeed(2.0)">2.0x</button>
+            </div>
+        </div>
+        <div class="outline-panel" id="outline-panel">
+            <div class="outline-header">
+                <h3>目录</h3>
+                <button id="close-outline">×</button>
+            </div>
+            <div class="outline-content" id="outline-content"></div>
+        </div>
+        <button id="show-outline" class="floating-btn">
+            <span>📑</span>
+        </button>
+        
+        <!-- 添加快捷标注按钮 -->
+        <div class="quick-note-btns">
+            <button class="quick-note-btn" id="quick-text-note" title="添加文字标注">📝</button>
+            <button class="quick-note-btn" id="quick-image-note" title="添加图片标注">🖼️</button>
+        </div>
+        
+        <!-- 添加翻页按钮 -->
+        <div class="page-control-btns">
+            <button class="page-btn" id="float-prev-page" title="上一页">▲</button>
+            <button class="page-btn" id="float-next-page" title="下一页">▼</button>
+        </div>
+    </div>
+
+    <script>
+        // PDF.js 初始化
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+        
+        // 全局变量
+        let pdfDoc = null;
+        let currentPage = 1;
+        let isAddingNote = false;
+        let notes = {};
+        let recordingTimer = null;
+        let currentMediaRecorder = null;
+        let originalPdfBytes = null;
+        let currentPdfName = '';
+        let currentPdfPath = '';
+        let isAddingTextNote = false;
+        let currentEditor = null;
+        let currentEditingNote = null;
+        let pdfScale = parseFloat(localStorage.getItem('pdfScale') || '2.0');
+        let playbackSpeed = parseFloat(localStorage.getItem('playbackSpeed') || '1.0');
+        let isAddingImageNote = false;  // 添加图片标注状态变量
+
+        // 实现播放速度控制功能
+        function setPlaybackSpeed(speed) {
+            // 保存到全局变量和本地存储
+            playbackSpeed = speed;
+            localStorage.setItem('playbackSpeed', speed);
+            
+            // 应用到音频播放器
+            const player = document.getElementById('audio-player');
+            if (player) {
+                player.playbackRate = speed;
+                console.log('播放速度设置为:', speed, player.playbackRate);
+            }
+            
+            // 重置所有按钮样式
+            const buttons = document.querySelectorAll('.playback-controls button');
+            buttons.forEach(btn => {
+                btn.style.backgroundColor = '#666';
+            });
+            
+            // 设置当前速度按钮样式
+            let buttonId;
+            if (speed === 0.75) buttonId = 'speed-75';
+            else if (speed === 1.0) buttonId = 'speed-100';
+            else if (speed === 1.25) buttonId = 'speed-125';
+            else if (speed === 1.5) buttonId = 'speed-150';
+            else if (speed === 1.75) buttonId = 'speed-175';
+            else if (speed === 2.0) buttonId = 'speed-200';
+            
+            const activeButton = document.getElementById(buttonId);
+            if (activeButton) {
+                activeButton.style.backgroundColor = '#FF69B4';
+                console.log('高亮按钮:', buttonId);
+            }
+        }
+
+        // 添加格式化时间函数
+        function formatTime(seconds) {
+            if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        // 更新音频时长显示
+        function updateAudioDuration(audioElement) {
+            if (!audioElement) return;
+            
+            const duration = isFinite(audioElement.duration) ? audioElement.duration : 0;
+            const currentTime = isFinite(audioElement.currentTime) ? audioElement.currentTime : 0;
+            const durationElement = document.querySelector('.audio-duration');
+            
+            if (durationElement) {
+                durationElement.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+            }
+        }
+
+        // 修改创建音频注释元素的函数
+        function createNoteElement(x, y, audioUrl, pageNum, label = '') {
+            const noteElement = document.createElement('div');
+            noteElement.className = 'audio-note';
+            noteElement.innerHTML = '🎤';
+            noteElement.title = label || '点击播放语音';
+            
+            // 直接使用绝对位置设置元素位置
+            noteElement.style.left = `${x}px`;
+            noteElement.style.top = `${y}px`;
+            
+            noteElement.onclick = function(e) {
+                e.stopPropagation(); // 防止点击事件传播
+                // 显示控件
+                document.getElementById('audio-controls').style.display = 'block';
+                
+                // 获取播放器
+                const player = document.getElementById('audio-player');
+                if (!player) return;
+                
+                // 设置音频源
+                if (player.src !== audioUrl) {
+                    player.src = audioUrl;
+                }
+                
+                // 应用保存的播放速度
+                player.playbackRate = playbackSpeed;
+                
+                // 添加时间更新事件处理
+                player.ontimeupdate = function() {
+                    updateAudioDuration(this);
+                };
+                
+                // 添加元数据加载事件
+                player.onloadedmetadata = function() {
+                    this.playbackRate = playbackSpeed;
+                    updateAudioDuration(this);
+                };
+                
+                // 播放音频
+                player.play().catch(error => {
+                    console.error('播放失败:', error);
+                    alert('播放音频失败，请重试');
+                });
+                
+                // 设置结束事件
+                player.onended = () => {
+                    setTimeout(() => {
+                        document.getElementById('audio-controls').style.display = 'none';
+                    }, 1000);
+                };
+                
+                // 监听播放开始事件，确保速度被正确设置
+                player.onplay = function() {
+                    this.playbackRate = playbackSpeed;
+                    console.log('播放开始，速度设置为:', playbackSpeed);
+                };
+            };
+            
+            // 将音频标注元素添加到 PDF 容器中
+            document.getElementById('pdf-container').appendChild(noteElement);
+            
+            return noteElement;
+        }
+
+        // 修改 BASE_URL 的定义
+        const BASE_URL = '';
+
+        // 保存阅读进度
+        function saveReadingProgress(currentPage, totalPages) {
+            if (!currentPage || !totalPages || !currentPdfName) return;
+            
+            // 使用PDF文件名作为唯一标识符
+            const pdfKey = `pdf_${currentPdfName}`;
+            
+            // 保存当前页码和总页数
+            localStorage.setItem(`${pdfKey}_lastPage`, currentPage);
+            localStorage.setItem(`${pdfKey}_totalPages`, totalPages);
+            
+            // 计算并显示进度
+            const progress = Math.round((currentPage / totalPages) * 100);
+            document.getElementById('reading-progress').textContent = `阅读进度: ${progress}%`;
+            document.getElementById('progress-bar').style.width = `${progress}%`;
+            
+            // 保存滚动位置
+            const container = document.getElementById('pdf-container');
+            localStorage.setItem(`${pdfKey}_scrollX`, container.scrollLeft);
+            localStorage.setItem(`${pdfKey}_scrollY`, container.scrollTop);
+
+            console.log(`已保存 ${currentPdfName} 的阅读进度: 第${currentPage}页，进度${progress}%`);
+        }
+        
+        // 在加载PDF时恢复上次阅读位置
+        function loadLastReadPage() {
+            if (!pdfDoc || !currentPdfName) return;
+            
+            // 使用PDF文件名作为唯一标识符
+            const pdfKey = `pdf_${currentPdfName}`;
+            
+            // 获取上次阅读页码
+            const lastPage = parseInt(localStorage.getItem(`${pdfKey}_lastPage`)) || 1;
+            currentPage = Math.min(lastPage, pdfDoc.numPages);
+            
+            console.log(`恢复 ${currentPdfName} 的阅读进度: 第${currentPage}页`);
+            
+            renderPage(currentPage).then(() => {
+                // 恢复滚动位置
+                const container = document.getElementById('pdf-container');
+                const scrollX = localStorage.getItem(`${pdfKey}_scrollX`);
+                const scrollY = localStorage.getItem(`${pdfKey}_scrollY`);
+                if (scrollX && scrollY) {
+                    container.scrollLeft = parseInt(scrollX);
+                    container.scrollTop = parseInt(scrollY);
+                }
+            });
+        }
+
+        // 添加切换语音标注模式的函数
+        function toggleAddNote() {
+            isAddingNote = !isAddingNote;
+            const addNoteBtn = document.getElementById('add-note-btn');
+            if (isAddingNote) {
+                addNoteBtn.textContent = '取消添加';
+                addNoteBtn.style.backgroundColor = '#ff4444';
+            } else {
+                addNoteBtn.textContent = '添加语音标注';
+                addNoteBtn.style.backgroundColor = '#FF69B4';
+                if (currentMediaRecorder && currentMediaRecorder.state === 'recording') {
+                    currentMediaRecorder.stop();
+                }
+            }
+        }
+
+        // 修改PDF文件加载事件
+        document.getElementById('pdf-file').addEventListener('change', async function(e) {
+            let file = e.target.files[0];
+            if (file) {
+                // 清空之前的笔记数据
+                notes = {};
+                
+                // 设置新的PDF名称
+                currentPdfName = file.name;
+                
+                // 创建一个没有扩展名和特殊字符的文件夹名
+                const folderName = currentPdfName.replace(/\.[^/.]+$/, "").replace(/[^\w\s]/gi, "_");
+                currentPdfPath = folderName;
+                
+                let fileReader = new FileReader();
+                fileReader.onload = async function() {
+                    originalPdfBytes = new Uint8Array(this.result);
+                    
+                    // 先加载PDF
+                    await loadPDF(originalPdfBytes);
+                    
+                    // 然后加载保存的注释
+                    try {
+                        const response = await fetch(`/get-notes/${encodeURIComponent(currentPdfName)}`);
+                        if (response.ok) {
+                            const loadedNotes = await response.json();
+                            if (Object.keys(loadedNotes).length > 0) {
+                                // 只有当有笔记数据时才更新
+                                notes = loadedNotes;
+                                console.log('已加载PDF笔记:', Object.keys(notes).length, '页');
+                            } else {
+                                console.log('没有找到PDF笔记，使用空数据');
+                            }
+                            
+                            // 加载完笔记后恢复阅读位置
+                            loadLastReadPage();
+                        }
+                    } catch (error) {
+                        console.error('加载注释失败:', error);
+                    }
+                };
+                fileReader.readAsArrayBuffer(file);
+            }
+        });
+
+        // 加载PDF
+        function loadPDF(data) {
+            return pdfjsLib.getDocument(data).promise.then(function(pdf) {
+                pdfDoc = pdf;
+                document.getElementById('page-count').textContent = pdf.numPages;
+                
+                // 加载大纲，但不渲染页面
+                loadOutline();
+            });
+        }
+
+        // 渲染PDF页面
+        async function renderPage(num) {
+            if (!pdfDoc) return;
+            
+            const page = await pdfDoc.getPage(num);
+            const viewport = page.getViewport({ scale: pdfScale });
+            
+            const canvas = document.getElementById('pdf-canvas');
+            const context = canvas.getContext('2d');
+            
+            // 保存旧尺寸用于计算缩放比例
+            const oldWidth = canvas.width;
+            const oldHeight = canvas.height;
+            
+            // 设置新尺寸
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+            // 计算缩放比例
+            const scaleX = canvas.width / (oldWidth || canvas.width);
+            const scaleY = canvas.height / (oldHeight || canvas.height);
+            
+            const renderContext = {
+                    canvasContext: context,
+                    viewport: viewport
+            };
+            
+            await page.render(renderContext);
+            currentPage = num;
+            document.getElementById('page-input').value = currentPage;
+            document.getElementById('page-count').textContent = pdfDoc.numPages;
+            
+            // 保存阅读进度
+            saveReadingProgress(currentPage, pdfDoc.numPages);
+            
+            // 更新URL
+            const url = new URL(window.location);
+            url.searchParams.set('page', currentPage);
+            window.history.replaceState({}, '', url);
+            
+            // 渲染注释，传入缩放比例
+            renderNotes(currentPage, scaleX, scaleY);
+        }
+
+        // 修改渲染注释的函数
+        function renderNotes(pageNumber) {
+            // 清除现有注释
+            document.querySelectorAll('.audio-note, .note-bubble, .note-content, .image-note, .image-preview').forEach(el => el.remove());
+
+            if (!notes[pageNumber]) return;
+            
+            notes[pageNumber].forEach(note => {
+                const posX = note.x;
+                const posY = note.y;
+                
+                if (note.type === 'text') {
+                    createNoteBubble(note, posX, posY);
+                } else if (note.type === 'image') {
+                    createImageNoteElement(posX, posY, note.imageUrl, pageNumber);
+                } else if (note.audioUrl) {
+                    createNoteElement(posX, posY, note.audioUrl, pageNumber, note.label);
+                }
+            });
+        }
+
+        // 修改开始录音函数中保存笔记的部分
+        async function startRecording(x, y, isContextMenuTriggered = false) { // Added isContextMenuTriggered
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const mediaRecorder = new MediaRecorder(stream); // Local instance
+
+                mediaRecorder.isRightClickRecording = isContextMenuTriggered; // Set flag on the instance
+                
+                const localMediaRecorderInstance = mediaRecorder; // For clarity in onstop
+                currentMediaRecorder = localMediaRecorderInstance; // Update global reference
+
+                let audioChunks = [];
+                let recordingSeconds = 0;
+                
+                const timerElement = document.getElementById('recording-timer');
+                const stopButton = document.getElementById('stop-recording');
+                timerElement.style.display = 'inline';
+                stopButton.style.display = 'inline';
+                
+                recordingTimer = setInterval(() => {
+                    recordingSeconds++;
+                    timerElement.textContent = `录音时长: ${recordingSeconds}秒`;
+                }, 1000);
+
+                localMediaRecorderInstance.ondataavailable = (event) => { // Use localMediaRecorderInstance
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                localMediaRecorderInstance.onstop = async () => { // Use localMediaRecorderInstance
+                    clearInterval(recordingTimer);
+                    stream.getTracks().forEach(track => track.stop());
+                    
+                    if (audioChunks.length === 0) {
+                        console.error('No audio data recorded');
+                        // Ensure UI is reset even if no data
+                        timerElement.style.display = 'none';
+                        stopButton.style.display = 'none';
+                        if (localMediaRecorderInstance.isRightClickRecording) {
+                            isAddingNote = false;
+                        }
+                        if (currentMediaRecorder === localMediaRecorderInstance) {
+                            currentMediaRecorder = null;
+                        }
+                        return;
+                    }
+
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    const formData = new FormData();
+                    formData.append('audio', audioBlob, 'audio.wav');
+
+                    try {
+                        const response = await fetch(`/upload?pdfName=${encodeURIComponent(currentPdfName)}`, {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`Upload failed: ${response.status}`);
+                        }
+
+                        const data = await response.json();
+                        
+                        if (!notes[currentPage]) {
+                            notes[currentPage] = [];
+                        }
+                        
+                        // 只保存绝对位置
+                        notes[currentPage].push({ 
+                            x, y, 
+                            audioUrl: data.url 
+                        });
+                        
+                        await fetch('/save-notes', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                pdfName: currentPdfName,
+                                notes: notes
+                            })
+                        });
+
+                        createNoteElement(x, y, data.url, currentPage);
+                    } catch (error) {
+                        console.error('上传音频失败:', error);
+                        alert('上传音频失败: ' + error.message);
+                    } finally {
+                        timerElement.style.display = 'none';
+                        stopButton.style.display = 'none';
+                        
+                        // Check the flag on the instance that stopped
+                        if (localMediaRecorderInstance.isRightClickRecording) {
+                            isAddingNote = false;
+                            // No need to update 'add-note-btn' text for right-click temp recording
+                        }
+                        
+                        // Only nullify global currentMediaRecorder if it's still this instance
+                        if (currentMediaRecorder === localMediaRecorderInstance) {
+                             currentMediaRecorder = null;
+                        } else {
+                             console.warn("onstop: currentMediaRecorder was already replaced by another instance.");
+                        }
+                    }
+                };
+
+                localMediaRecorderInstance.start(); // Use localMediaRecorderInstance
+                // 每秒收集一次数据
+                setInterval(() => {
+                    if (localMediaRecorderInstance.state === 'recording') { // Use localMediaRecorderInstance
+                        localMediaRecorderInstance.requestData(); // Use localMediaRecorderInstance
+                    }
+                }, 1000);
+
+            } catch (err) {
+                console.error('Recording failed:', err);
+                alert('Cannot access microphone: ' + err.message);
+                // Caller should handle resetting isAddingNote if needed
+                throw err; // Re-throw so caller can handle UI reset for isAddingNote
+            }
+        }
+
+        // 修改停止录音按钮事件
+        document.getElementById('stop-recording').addEventListener('click', function() {
+            if (currentMediaRecorder && currentMediaRecorder.state === 'recording') {
+                currentMediaRecorder.stop();
+                const tracks = currentMediaRecorder.stream.getTracks();
+                tracks.forEach(track => track.stop());
+            }
+        });
+
+        // 修改 PDF 容器点击事件 (恢复原语音标注的点击监听器)
+        document.getElementById('pdf-container').addEventListener('click', async function(e) { // Make it async
+            if (!isAddingNote) return;
+            
+            // 获取绝对位置坐标，考虑滚动
+            const rect = this.getBoundingClientRect();
+            const x = e.clientX - rect.left + this.scrollLeft;
+            const y = e.clientY - rect.top + this.scrollTop;
+            
+            console.log('点击位置:', x, y);
+            try {
+                await startRecording(x, y, false); // Pass false, as this is not context menu
+            } catch (error) {
+                console.error("Failed to start voice note recording from click:", error);
+                // If recording fails, toggle off the adding note mode
+                if (isAddingNote) { // Check if still in adding note mode before toggling
+                    toggleAddNote(); 
+                }
+            }
+        });
+
+        // 修改右键快速录音功能
+        document.getElementById('pdf-container').addEventListener('contextmenu', async function(e) {
+            e.preventDefault(); // 阻止默认右键菜单
+
+            // Case 1: Active right-click recording exists (instance has the flag). Stop it or ignore.
+            if (currentMediaRecorder && currentMediaRecorder.isRightClickRecording) {
+                if (currentMediaRecorder.state === 'recording') {
+                    console.log("Right-click: Active right-click recording found. Stopping it.");
+                    document.getElementById('stop-recording').click();
+                } else {
+                    console.log("Right-click: Inactive right-click recording instance found. Waiting for cleanup. State:", currentMediaRecorder.state);
+                }
+                // Whether it was recording or inactive (but still the right-click instance),
+                // we don't start a new one in this same event.
+                return;
+            }
+
+            // Case 2: No current recorder, or it's a non-right-click recorder. We want to start a new right-click recording.
+            // If a non-right-click recording is active, stop it first.
+            if (currentMediaRecorder && currentMediaRecorder.state === 'recording' && !currentMediaRecorder.isRightClickRecording) {
+                console.log("Right-click: Non-right-click recording active. Stopping it first.");
+                document.getElementById('stop-recording').click();
+                // Add a small delay to allow the stop operation and its onstop to proceed
+                await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
+                // After delay, check if currentMediaRecorder became null. If not, something might be stuck or took longer.
+                // For simplicity, we'll proceed assuming it will be handled or overwritten by new recording.
+            }
+            
+            // Proceed to start a new right-click recording
+            console.log("Right-click: Starting new right-click recording.");
+            const rect = this.getBoundingClientRect();
+            const x = e.clientX - rect.left + this.scrollLeft;
+            const y = e.clientY - rect.top + this.scrollTop;
+            
+            isAddingNote = true; 
+            isAddingTextNote = false; 
+            isAddingImageNote = false;
+            // Reset UI for other note types
+            document.getElementById('add-text-note').classList.remove('active');
+            document.getElementById('quick-text-note').classList.remove('active');
+            document.getElementById('add-image-note').classList.remove('active');
+            document.getElementById('quick-image-note').classList.remove('active');
+            // Ensure the main "add-note-btn" is not in a 'cancel' state if it was
+            const addNoteBtn = document.getElementById('add-note-btn');
+            addNoteBtn.textContent = '添加语音标注'; // Or some indication of right-click recording
+            addNoteBtn.style.backgroundColor = '#FF69B4';
+
+
+            try {
+                await startRecording(x, y, true); // Pass true for context menu
+            } catch (error) {
+                console.error('Right-click start recording failed:', error);
+                isAddingNote = false; // Reset if starting failed
+            }
+        });
+
+        // 修改翻页按钮事件
+        document.getElementById('prev-page').addEventListener('click', function() {
+            if (!pdfDoc || currentPage <= 1) return;
+            currentPage--;
+            renderPage(currentPage);
+        });
+
+        document.getElementById('next-page').addEventListener('click', function() {
+            if (!pdfDoc || currentPage >= pdfDoc.numPages) return;
+            currentPage++;
+            renderPage(currentPage);
+        });
+
+        // 修改保存注释的函数
+        async function savePdfNotes() {
+            if (!currentPdfName) {
+                console.error('没有打开的PDF文件，无法保存笔记');
+                return;
+            }
+            
+            try {
+                console.log('保存笔记到:', currentPdfName);
+                const response = await fetch('/save-notes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        pdfName: currentPdfName,
+                        notes: notes
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error('保存注释失败');
+                }
+            } catch (error) {
+                console.error('保存注释失败:', error);
+            }
+        }
+
+        window.onerror = function(msg, url, line) {
+            console.error('Error: ' + msg + '\nURL: ' + url + '\nLine: ' + line);
+            return false;
+        };
+
+        // 将 fetchWithRetry 函数保留，但删除测试代码
+        async function fetchWithRetry(url, options, retries = 3) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    console.error(`Attempt ${i + 1} failed:`, error);
+                    if (i === retries - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+                }
+            }
+        }
+
+        // 修改初始化函数，使用 fetchWithRetry
+        async function initializeApp() {
+            try {
+                const response = await fetchWithRetry('/health', {
+                    method: 'GET'
+                });
+                if (!response.ok) {
+                    throw new Error('服务器未响应');
+                }
+            } catch (error) {
+                console.error('服务器连接失败:', error);
+                alert('无法连接到服务器，请确保服务器已启动');
+                document.getElementById('add-note-btn').disabled = true;
+                document.getElementById('pdf-file').disabled = true;
+            }
+        }
+
+        // 在页面加载时调用初始化函数
+        document.addEventListener('DOMContentLoaded', () => {
+            // 初始化设置
+            initializeApp().catch(error => {
+                console.error('初始化失败:', error);
+            });
+            loadLastReadPage();
+            checkUrlParams();
+            
+            // 添加分辨率控制按钮
+            const resolutionControls = document.createElement('div');
+            resolutionControls.className = 'resolution-controls';
+            resolutionControls.innerHTML = `
+                <span style="font-size:14px;margin-right:5px;">分辨率:</span>
+                <button onclick="updateResolution(1.0)">低</button>
+                <button onclick="updateResolution(2.0)">中</button>
+                <button onclick="updateResolution(3.0)">高</button>
+                <span id="resolution-value">${pdfScale.toFixed(1)}</span>
+            `;
+            document.querySelector('.toolbar').appendChild(resolutionControls);
+            
+            // 立即初始化按钮状态
+            setPlaybackSpeed(playbackSpeed);
+            
+            // 确保音频播放器事件监听器被正确设置
+            const audioPlayer = document.getElementById('audio-player');
+            if (audioPlayer) {
+                audioPlayer.addEventListener('loadeddata', function() {
+                    console.log('音频加载完成，设置速度为:', playbackSpeed);
+                    this.playbackRate = playbackSpeed;
+                });
+                
+                audioPlayer.addEventListener('play', function() {
+                    console.log('音频播放开始，设置速度为:', playbackSpeed);
+                    this.playbackRate = playbackSpeed;
+                });
+                
+                audioPlayer.addEventListener('ratechange', function() {
+                    const newRate = this.playbackRate;
+                    if (newRate !== playbackSpeed && !isNaN(newRate)) {
+                        console.log('播放速度被外部修改为:', newRate, '重置为:', playbackSpeed);
+                        setTimeout(() => { this.playbackRate = playbackSpeed; }, 10);
+                    }
+                });
+            }
+        });
+
+        // 修改页码输入框事件
+        document.getElementById('page-input').addEventListener('change', function() {
+            const pageNo = parseInt(this.value);
+            if (pageNo && pageNo >= 1 && pageNo <= pdfDoc.numPages) {
+                currentPage = pageNo;
+                renderPage(currentPage);
+            }
+        });
+
+        // 修改键盘快捷键处理
+        document.addEventListener('keydown', function(e) {
+            // Alt+S for saving text note from popup editor - should work even if textarea has focus
+            if (e.altKey && e.key.toLowerCase() === 's') {
+                const activeEditorPopup = document.querySelector('.note-editor-popup');
+                if (activeEditorPopup) {
+                    e.preventDefault(); // Prevent default browser action (e.g., File > Save)
+                    const saveButton = activeEditorPopup.querySelector('.buttons button.save');
+                    if (saveButton) {
+                        saveButton.click(); // This will trigger the saveTextNote function
+                        console.log('Alt+S: Triggered save for text note popup.');
+                    } else {
+                        console.log('Alt+S: Editor popup found, but no save button inside.');
+                    }
+                    return; // Shortcut handled, do not proceed to other keydown logic
+                } else {
+                    console.log('Alt+S: Pressed, but no active .note-editor-popup found.'); // Added diagnostic log
+                }
+                // If no popup, let event proceed for other potential handlers or default behavior
+            }
+
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                // Allow specific shortcuts if needed in the future, e.g. Ctrl+Enter to save from textarea
+                // For now, if Alt+S was not handled above, and focus is on input/textarea,
+                // most other global shortcuts (like page navigation) should be ignored.
+                return;
+            }
+
+            switch(e.key) {
+                case 'ArrowLeft':  // ← 上一页
+                    if (currentPage > 1) {
+                        currentPage--;
+                        renderPage(currentPage);
+                    }
+                    break;
+                case 'ArrowRight':  // → 下一页
+                    if (currentPage < pdfDoc.numPages) {
+                        currentPage++;
+                        renderPage(currentPage);
+                    }
+                    break;
+                case 'ArrowUp':    // ↑ 向上翻 5 页
+                    if (currentPage > 5) {
+                        currentPage -= 5;
+                    } else {
+                        currentPage = 1;
+                    }
+                    renderPage(currentPage);
+                    break;
+                case 'ArrowDown':  // ↓ 向下翻 5 页
+                    if (currentPage + 5 <= pdfDoc.numPages) {
+                        currentPage += 5;
+                    } else {
+                        currentPage = pdfDoc.numPages;
+                    }
+                    renderPage(currentPage);
+                    break;
+                case 'Home':      // Home 键跳到第一页
+                    currentPage = 1;
+                    renderPage(currentPage);
+                    break;
+                case 'End':       // End 键跳到最后一页
+                    currentPage = pdfDoc.numPages;
+                    renderPage(currentPage);
+                    break;
+            }
+        });
+
+        // 修改快捷键提示
+        const shortcutHints = `
+快捷键说明：
+Alt+鼠标左键：在鼠标左击的位置添加文字标注
+Alt+s：保存文字标注（注意！下次修改标注时Alt+s是失效的，只能点保存）
+鼠标右键: 任意位置 快速开始/停止录音
+←/→: 上一页/下一页
+↑/↓: 向上/向下翻 5 页
+Home/End: 第一页/最后一页
+
+        `;
+
+        // 更新快捷键按钮的样式，使其更显眼
+        document.querySelector('.toolbar').insertAdjacentHTML('beforeend', `
+            <button id="show-shortcuts" title="点击查看快捷键说明" 
+                style="margin-left: 10px; background-color: #FF69B4;">
+                ⌨️ 使用说明
+            </button>
+        `);
+
+        // 显示快捷键提示
+        document.getElementById('show-shortcuts').addEventListener('click', function() {
+            alert(shortcutHints);
+        });
+
+        // PDF 目录功能
+        async function loadOutline() {
+            if (!pdfDoc) return;
+            
+            try {
+                const outline = await pdfDoc.getOutline();
+                const outlineContent = document.getElementById('outline-content');
+                outlineContent.innerHTML = '';
+
+                if (outline && outline.length > 0) {
+                    outline.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'outline-item';
+                        div.textContent = item.title;
+                        div.addEventListener('click', async () => {
+                            const dest = await item.dest;
+                            if (dest) {
+                                const pageIndex = await pdfDoc.getPageIndex(dest[0]);
+                                currentPage = pageIndex + 1;
+                                renderPage(currentPage);
+                            }
+                        });
+                        outlineContent.appendChild(div);
+                    });
+                } else {
+                    outlineContent.innerHTML = '<div class="outline-item">无目录信息</div>';
+                }
+            } catch (error) {
+                console.error('加载目录失败:', error);
+            }
+        }
+
+        // 目录面板控制
+        document.getElementById('show-outline').addEventListener('click', function() {
+            document.getElementById('outline-panel').classList.add('show');
+            loadOutline();
+        });
+
+        document.getElementById('close-outline').addEventListener('click', function() {
+            document.getElementById('outline-panel').classList.remove('show');
+        });
+
+        // 添加编辑器 HTML
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="note-editor" id="note-editor">
+                <div class="note-editor-header">
+                    <h3>编辑文字注释</h3>
+                    <button onclick="closeNoteEditor()">×</button>
+                </div>
+                <textarea id="note-content" placeholder="支持 Markdown 语法"></textarea>
+                <div class="note-editor-footer">
+                    <button onclick="closeNoteEditor()">取消</button>
+                    <button onclick="saveTextNote()" style="background-color: #FF69B4;">保存</button>
+                </div>
+            </div>
+        `);
+
+        // 文字注释功能 (恢复 add-text-note 按钮的原始点击事件)
+        document.getElementById('add-text-note').addEventListener('click', function() {
+            isAddingTextNote = !isAddingTextNote;
+            this.classList.toggle('active');
+            if (isAddingTextNote) {
+                this.style.backgroundColor = '#FF69B4';
+            } else {
+                this.style.backgroundColor = '#FF69B4';
+            }
+        });
+
+        // 恢复原文字标注的 pdf-container 点击监听器
+        document.getElementById('pdf-container').addEventListener('click', function(e) {
+            if (!isAddingTextNote) return;
+            
+            // 获取绝对位置坐标，考虑滚动
+            const rect = this.getBoundingClientRect();
+            const x = e.clientX - rect.left + this.scrollLeft;
+            const y = e.clientY - rect.top + this.scrollTop;
+            
+            console.log('添加文字笔记位置:', x, y);
+            createTextNoteEditor(x, y);
+        });
+
+        function createTextNoteEditor(x, y, existingNote = null) {
+            const editor = document.createElement('div');
+            editor.className = 'note-editor-popup';
+            editor.style.left = `${x}px`;
+            editor.style.top = `${y}px`;
+            
+            editor.innerHTML = `
+                <div class="markdown-hint">支持 Markdown 语法</div>
+                <textarea placeholder="输入注释内容...">${existingNote ? existingNote.content : ''}</textarea>
+                <div class="buttons">
+                    <button class="cancel" onclick="cancelTextNote(this)">取消</button>
+                    <button class="save" onclick="saveTextNote(this, ${x}, ${y})">保存</button>
+                </div>
+            `;
+            
+            document.getElementById('pdf-container').appendChild(editor);
+        }
+
+        async function saveTextNote(button, x, y) {
+            const editor = button.closest('.note-editor-popup');
+            const content = editor.querySelector('textarea').value.trim();
+            
+            if (!content) {
+                editor.remove();
+                return;
+            }
+            
+            if (!notes[currentPage]) notes[currentPage] = [];
+            
+            const noteData = {
+                type: 'text',
+                x, y,
+                content,
+                timestamp: Date.now()
+            };
+            
+            // 如果是编辑现有注释，先删除旧的
+            if (currentEditingNote) {
+                notes[currentPage] = notes[currentPage].filter(n => n !== currentEditingNote);
+            }
+            
+            notes[currentPage].push(noteData);
+            await savePdfNotes();
+            
+            createNoteBubble(noteData, x, y);
+            editor.remove();
+            currentEditingNote = null;
+        }
+
+        function cancelTextNote(button) {
+            button.closest('.note-editor-popup').remove();
+            currentEditingNote = null;
+        }
+
+        function createNoteBubble(noteData, posX, posY) {
+            const container = document.createElement('div');
+            container.className = 'note-container';
+            container.style.position = 'absolute';
+            
+            // 使用传入的绝对位置坐标
+            container.style.left = `${posX}px`;
+            container.style.top = `${posY}px`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'note-bubble';
+            bubble.innerHTML = '📝';
+            
+            const content = document.createElement('div');
+            content.className = 'note-content';
+            content.innerHTML = marked.parse(noteData.content);
+
+            let isEditing = false;
+            container.appendChild(bubble);
+            container.appendChild(content);
+
+            // 鼠标悬停显示内容
+            container.addEventListener('mouseenter', () => {
+                if (!isEditing) {
+                    container.style.zIndex = 1002; // 提升层级，确保在最前面
+                    content.style.display = 'block';
+                    content.style.left = '15px'; // 调整内容显示位置
+                    content.style.top = '-10px';  // 上移一点以避免遮挡
+                }
+            });
+
+            // 鼠标离开时隐藏内容
+            container.addEventListener('mouseleave', (e) => {
+                if (!isEditing) {
+                    container.style.zIndex = 1000; // 恢复原始层级
+                    content.style.display = 'none';
+                }
+            });
+
+            // 防止事件冒泡到容器
+            bubble.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+
+            // 点击内容进入编辑模式
+            content.addEventListener('click', (e) => {
+                if (isAddingNote) return; // 录音时不允许编辑
+                e.stopPropagation();
+                
+                if (!isEditing) {
+                    isEditing = true;
+                    const textarea = document.createElement('textarea');
+                    textarea.value = noteData.content;
+                    textarea.style.width = '100%';
+                    textarea.style.minHeight = '100px';
+                    textarea.style.maxHeight = '400px';
+                    textarea.style.resize = 'vertical';
+                    textarea.style.padding = '8px';
+                    textarea.style.border = '1px solid rgba(255, 105, 180, 0.3)';
+                    textarea.style.borderRadius = '4px';
+                    textarea.style.backgroundColor = 'white';
+                    textarea.style.fontFamily = 'inherit';
+                    textarea.style.fontSize = '14px';
+                    textarea.style.lineHeight = '1.5';
+
+                    const originalContent = content.innerHTML;
+                    content.innerHTML = '';
+                    content.appendChild(textarea);
+                    textarea.focus();
+
+                    // 创建按钮容器
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.style.display = 'flex';
+                    buttonContainer.style.justifyContent = 'flex-end';
+                    buttonContainer.style.gap = '8px';
+                    buttonContainer.style.marginTop = '8px';
+
+                    // 创建保存和取消按钮
+                    const saveButton = document.createElement('button');
+                    saveButton.textContent = '保存';
+                    saveButton.style.padding = '4px 8px';
+                    saveButton.style.backgroundColor = '#FF69B4';
+                    saveButton.style.color = 'white';
+                    saveButton.style.border = 'none';
+                    saveButton.style.borderRadius = '4px';
+                    saveButton.style.cursor = 'pointer';
+
+                    const cancelButton = document.createElement('button');
+                    cancelButton.textContent = '取消';
+                    cancelButton.style.padding = '4px 8px';
+                    cancelButton.style.backgroundColor = '#f5f5f5';
+                    cancelButton.style.color = '#333';
+                    cancelButton.style.border = 'none';
+                    cancelButton.style.borderRadius = '4px';
+                    cancelButton.style.cursor = 'pointer';
+
+                    buttonContainer.appendChild(cancelButton);
+                    buttonContainer.appendChild(saveButton);
+                    content.appendChild(buttonContainer);
+
+                    // 保存编辑
+                    function saveEdit() {
+                        const newContent = textarea.value.trim();
+                        if (newContent !== noteData.content) {
+                            noteData.content = newContent;
+                            content.innerHTML = marked.parse(newContent);
+                            savePdfNotes();
+                        } else {
+                            content.innerHTML = originalContent;
+                        }
+                        isEditing = false;
+                    }
+
+                    // 取消编辑
+                    function cancelEdit() {
+                        content.innerHTML = originalContent;
+                        isEditing = false;
+                    }
+
+                    // 绑定按钮事件
+                    saveButton.onclick = (e) => {
+                        e.stopPropagation();
+                        saveEdit();
+                    };
+
+                    cancelButton.onclick = (e) => {
+                        e.stopPropagation();
+                        cancelEdit();
+                    };
+
+                    // ESC 键取消编辑
+                    textarea.addEventListener('keydown', (e) => {
+                        if (e.key === 'Escape') {
+                            cancelEdit();
+                        }
+                    });
+                }
+            });
+
+            // 右键删除注释
+            bubble.addEventListener('contextmenu', async (e) => {
+                e.preventDefault();
+                if (confirm('是否删除这个注释？')) {
+                    notes[currentPage] = notes[currentPage].filter(n => n !== noteData);
+                    await savePdfNotes();
+                    container.remove();
+                }
+            });
+
+            document.getElementById('pdf-container').appendChild(container);
+        }
+
+        // 添加分辨率控制函数
+        function updateResolution(newScale) {
+            pdfScale = newScale;
+            localStorage.setItem('pdfScale', pdfScale);
+            document.getElementById('resolution-value').textContent = pdfScale.toFixed(1);
+            
+            // 重新渲染当前页面以应用新分辨率
+            if (pdfDoc) {
+                renderPage(currentPage);
+            }
+        }
+
+        // 添加滚动位置记录
+        function saveScrollPosition() {
+            if (!currentPdfName) return;
+            
+            const pdfKey = `pdf_${currentPdfName}`;
+            const container = document.getElementById('pdf-container');
+            localStorage.setItem(`${pdfKey}_scrollX`, container.scrollLeft);
+            localStorage.setItem(`${pdfKey}_scrollY`, container.scrollTop);
+        }
+
+        function restoreScrollPosition() {
+            if (!currentPdfName) return;
+            
+            const pdfKey = `pdf_${currentPdfName}`;
+            const container = document.getElementById('pdf-container');
+            const scrollX = localStorage.getItem(`${pdfKey}_scrollX`);
+            const scrollY = localStorage.getItem(`${pdfKey}_scrollY`);
+            if (scrollX && scrollY) {
+                container.scrollLeft = parseInt(scrollX);
+                container.scrollTop = parseInt(scrollY);
+            }
+        }
+
+        // 监听滚动事件
+        document.getElementById('pdf-container').addEventListener('scroll', debounce(saveScrollPosition, 100));
+
+        // 防抖函数
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // 在加载PDF时检查URL参数
+        function checkUrlParams() {
+            if (!pdfDoc || !currentPdfName) return;
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const pageParam = urlParams.get('page');
+            if (pageParam) {
+                const page = parseInt(pageParam);
+                if (page && page <= pdfDoc.numPages) {
+                    currentPage = page;
+                    renderPage(currentPage);
+                }
+            }
+        }
+
+        // 添加翻页按钮的事件处理
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('float-prev-page').addEventListener('click', function() {
+                if (!pdfDoc || currentPage <= 1) return;
+                currentPage--;
+                renderPage(currentPage);
+            });
+            
+            document.getElementById('float-next-page').addEventListener('click', function() {
+                if (!pdfDoc || currentPage >= pdfDoc.numPages) return;
+                currentPage++;
+                renderPage(currentPage);
+            });
+        });
+
+        // 优化窗口大小变化的事件处理
+        window.addEventListener('resize', debounce(function() {
+            if (pdfDoc) {
+                console.log("窗口大小改变，重新渲染页面");
+                renderPage(currentPage);
+            }
+        }, 200));
+
+        // 添加图片标注功能
+        document.getElementById('add-image-note').addEventListener('click', function() {
+            isAddingImageNote = !isAddingImageNote;
+            this.classList.toggle('active');
+            if (isAddingImageNote) {
+                this.style.backgroundColor = '#FF69B4';
+            } else {
+                this.style.backgroundColor = '#FF69B4';
+            }
+        });
+
+        // 创建图片标注元素
+        function createImageNoteElement(x, y, imageUrl, pageNum) {
+            const noteElement = document.createElement('div');
+            noteElement.className = 'image-note';
+            noteElement.innerHTML = '🖼️';
+            // noteElement.title = '点击查看图片'; // REMOVED: Remove default browser tooltip
+            
+            noteElement.style.left = `${x}px`;
+            noteElement.style.top = `${y}px`;
+            
+            // 创建预览容器
+            const previewContainer = document.createElement('div');
+            previewContainer.className = 'image-preview';
+            previewContainer.style.left = `${x + 20}px`; // Position slightly to the right of the icon
+            previewContainer.style.top = `${y}px`; // Align top with the icon
+
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            previewContainer.appendChild(img);
+
+            // Store reference to the note data (find it, needed for deletion)
+            let noteData = null;
+            if (notes[currentPage]) {
+                noteData = notes[currentPage].find(n => n.type === 'image' && n.x === x && n.y === y && n.imageUrl === imageUrl);
+            }
+
+            function showPreview() {
+                noteElement.style.zIndex = 1002; // 提升图标层级
+                previewContainer.style.zIndex = 1003; // 提升预览层级
+                previewContainer.classList.add('show');
+            }
+
+            function hidePreview() {
+                 // 延迟隐藏，以便鼠标可以在图标和预览之间移动
+                setTimeout(() => {
+                    if (!noteElement.matches(':hover') && !previewContainer.matches(':hover')) {
+                        previewContainer.classList.remove('show');
+                        noteElement.style.zIndex = 1000; // 恢复图标层级
+                        previewContainer.style.zIndex = 1001; // 恢复预览层级
+                    }
+                }, 100);
+            }
+
+            // 悬停时显示预览
+            noteElement.addEventListener('mouseenter', showPreview);
+            previewContainer.addEventListener('mouseenter', showPreview);
+
+            // 鼠标离开时隐藏预览
+            noteElement.addEventListener('mouseleave', hidePreview);
+            previewContainer.addEventListener('mouseleave', hidePreview);
+
+
+            // 点击预览图片放大
+            previewContainer.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent triggering other click listeners
+                const modal = document.getElementById('image-modal');
+                const modalContainer = document.getElementById('modal-image-container');
+                const modalImg = document.getElementById('modal-image');
+                const closeModalBtn = document.getElementById('close-modal');
+
+                let currentScale = 1.0;
+                const minScale = 0.5;
+                const maxScale = 5.0;
+                const scaleStep = 0.1;
+
+                // Reset image state before showing
+                modalImg.style.transform = 'scale(1.0) translate(0, 0)'; // Reset scale and pan
+                modalImg.src = imageUrl;
+                currentScale = 1.0;
+                modal.style.display = 'flex'; // Use flex to enable centering via CSS
+
+                // --- Wheel Zoom Logic --- 
+                function handleWheelZoom(event) {
+                    event.preventDefault(); // Prevent page scrolling
+                    
+                    const delta = event.deltaY > 0 ? -scaleStep : scaleStep; // Negative deltaY means scrolling up (zoom in)
+                    let newScale = currentScale + delta;
+                    
+                    // Clamp scale within limits
+                    newScale = Math.max(minScale, Math.min(maxScale, newScale));
+                    
+                    modalImg.style.transform = `scale(${newScale})`;
+                    currentScale = newScale;
+                }
+
+                // Add wheel event listener
+                modalContainer.addEventListener('wheel', handleWheelZoom);
+
+                // --- Close Modal Logic --- 
+                function closeModal() {
+                    modal.style.display = "none";
+                    // IMPORTANT: Remove event listener when modal is closed
+                    modalContainer.removeEventListener('wheel', handleWheelZoom);
+                    modalImg.src = ''; // Clear image src
+                }
+
+                closeModalBtn.onclick = closeModal;
+                
+                // Click background to close
+                modal.onclick = function(event) {
+                    // Close only if clicking the modal background itself, not the container/image
+                    if (event.target === modal) {
+                        closeModal();
+                    }
+                }
+                 // Optional: ESC key to close
+                function handleEscKey(event) {
+                    if (event.key === 'Escape') {
+                        closeModal();
+                        document.removeEventListener('keydown', handleEscKey);
+                    }
+                }
+                document.addEventListener('keydown', handleEscKey); 
+
+            });
+
+            // 右键删除功能 (保持在 noteElement 上)
+            noteElement.addEventListener('contextmenu', async function(e) {
+                e.preventDefault();
+                if (confirm('是否删除这个图片标注？')) {
+                    if (noteData && notes[currentPage]) {
+                         notes[currentPage] = notes[currentPage].filter(n => n !== noteData);
+                         await savePdfNotes();
+                         noteElement.remove();
+                         previewContainer.remove(); // Also remove the preview element
+                    } else {
+                        console.warn("Could not find note data to delete.");
+                        // Fallback: remove elements anyway, but data might persist until refresh/save
+                        noteElement.remove();
+                        previewContainer.remove();
+                    }
+                }
+            });
+
+            document.getElementById('pdf-container').appendChild(noteElement);
+            document.getElementById('pdf-container').appendChild(previewContainer);
+
+            return noteElement;
+        }
+
+        // 处理图片上传
+        document.getElementById('pdf-container').addEventListener('click', async function(e) {
+            if (!isAddingImageNote) return;
+            
+            const rect = this.getBoundingClientRect();
+            const x = e.clientX - rect.left + this.scrollLeft;
+            const y = e.clientY - rect.top + this.scrollTop;
+            
+            // 创建文件输入元素
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.style.display = 'none';
+            
+            fileInput.onchange = async function() {
+                const file = this.files[0];
+                if (!file) return;
+                
+                await uploadAndCreateImageNote(file, x, y);
+            };
+            
+            document.body.appendChild(fileInput);
+            fileInput.click();
+            document.body.removeChild(fileInput);
+        });
+        
+        // 提取上传图片和创建标注的公共方法
+        async function uploadAndCreateImageNote(file, x, y) {
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('pdfName', currentPdfName);
+            
+            try {
+                const response = await fetch(`/upload-image?pdfName=${encodeURIComponent(currentPdfName)}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`上传失败: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!notes[currentPage]) {
+                    notes[currentPage] = [];
+                }
+                
+                const noteData = {
+                    type: 'image',
+                    x, y,
+                    imageUrl: data.url,
+                    timestamp: Date.now()
+                };
+                
+                notes[currentPage].push(noteData);
+                await savePdfNotes();
+                
+                createImageNoteElement(x, y, data.url, currentPage);
+            } catch (error) {
+                console.error('上传图片失败:', error);
+                alert('上传图片失败: ' + error.message);
+            }
+        }
+        
+        // 添加剪贴板粘贴支持
+        document.addEventListener('paste', async function(e) {
+            if (!isAddingImageNote) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const items = e.clipboardData.items;
+            let imageFile = null;
+            
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    imageFile = items[i].getAsFile();
+                    break;
+                }
+            }
+            
+            if (imageFile) {
+                const container = document.getElementById('pdf-container');
+                const rect = container.getBoundingClientRect();
+                
+                // 默认粘贴到视口中心
+                const centerX = container.scrollLeft + (container.clientWidth / 2);
+                const centerY = container.scrollTop + (container.clientHeight / 2);
+                
+                await uploadAndCreateImageNote(imageFile, centerX, centerY);
+            }
+        });
+        
+        // 添加快捷标注按钮功能
+        document.addEventListener('DOMContentLoaded', function() {
+            // 快捷添加文字标注
+            document.getElementById('quick-text-note').addEventListener('click', function() {
+                isAddingTextNote = !isAddingTextNote;
+                this.classList.toggle('active');
+                
+                // 重置其他标注模式
+                isAddingNote = false;
+                isAddingImageNote = false;
+                document.getElementById('add-note-btn').textContent = '添加语音标注';
+                document.getElementById('add-note-btn').style.backgroundColor = '#FF69B4';
+                document.getElementById('add-image-note').classList.remove('active');
+                document.getElementById('quick-image-note').classList.remove('active');
+            });
+            
+            // 快捷添加图片标注
+            document.getElementById('quick-image-note').addEventListener('click', function() {
+                isAddingImageNote = !isAddingImageNote;
+                this.classList.toggle('active');
+                
+                // 重置其他标注模式
+                isAddingNote = false;
+                isAddingTextNote = false;
+                document.getElementById('add-note-btn').textContent = '添加语音标注';
+                document.getElementById('add-note-btn').style.backgroundColor = '#FF69B4';
+                document.getElementById('add-text-note').classList.remove('active');
+                document.getElementById('quick-text-note').classList.remove('active');
+            });
+            
+            // 同步工具栏和快捷按钮的状态
+            document.getElementById('add-text-note').addEventListener('click', function() {
+                document.getElementById('quick-text-note').classList.toggle('active');
+                // 重置其他标注模式
+                isAddingNote = false;
+                isAddingImageNote = false;
+                document.getElementById('add-note-btn').textContent = '添加语音标注';
+                document.getElementById('add-note-btn').style.backgroundColor = '#FF69B4';
+                document.getElementById('add-image-note').classList.remove('active');
+                document.getElementById('quick-image-note').classList.remove('active');
+            });
+            
+            document.getElementById('add-image-note').addEventListener('click', function() {
+                document.getElementById('quick-image-note').classList.toggle('active');
+                // 重置其他标注模式
+                isAddingNote = false;
+                isAddingTextNote = false;
+                document.getElementById('add-note-btn').textContent = '添加语音标注';
+                document.getElementById('add-note-btn').style.backgroundColor = '#FF69B4';
+                document.getElementById('add-text-note').classList.remove('active');
+                document.getElementById('quick-text-note').classList.remove('active');
+            });
+        });
+
+        // 新增：Alt + 鼠标左键 直接添加文字标注的独立监听器
+        document.getElementById('pdf-container').addEventListener('mousedown', function(e) { // NEW, using mousedown
+            if (e.altKey && e.button === 0) { // e.button === 0 for left mouse button
+                e.preventDefault(); // Prevent any default action or further propagation if needed
+                e.stopPropagation(); // Stop event from reaching other click listeners on pdf-container
+
+                const rect = this.getBoundingClientRect();
+                const x = e.clientX - rect.left + this.scrollLeft;
+                const y = e.clientY - rect.top + this.scrollTop;
+
+                console.log('Alt + Left Mousedown: 创建文字笔记于', x, y); // Changed log message
+                createTextNoteEditor(x, y);
+                
+                // 重要：不改变全局的 isAddingTextNote, isAddingNote, isAddingImageNote 状态
+                // 也不改变任何按钮的激活状态，保持此操作的独立性
+            }
+        }, true); // Use capture phase to ensure this runs before other click listeners if necessary
+
+        // 在主 &lt;script&gt; 的开头添加
+        marked.setOptions({
+          highlight: function(code, lang) {
+            const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+            return hljs.highlight(code, { language }).value;
+          },
+          langPrefix: 'hljs language-'
+        });
+    </script>
+
+    <!-- 添加导航栏控制按钮 -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 创建导航栏切换按钮
+            const toggleButton = document.createElement('button');
+            toggleButton.className = 'toolbar-toggle';
+            toggleButton.innerHTML = '⚙️';
+            toggleButton.title = '显示/隐藏设置面板';
+            document.body.appendChild(toggleButton);
+            
+            // 导航栏切换功能
+            toggleButton.addEventListener('click', function() {
+                const toolbar = document.querySelector('.toolbar');
+                toolbar.classList.toggle('expanded');
+                this.classList.toggle('active');
+                
+                if (toolbar.classList.contains('expanded')) {
+                    this.innerHTML = '×';
+                } else {
+                    this.innerHTML = '⚙️';
+                }
+            });
+            
+            // 点击工具栏以外区域自动隐藏工具栏
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.toolbar') && !e.target.closest('.toolbar-toggle')) {
+                    const toolbar = document.querySelector('.toolbar');
+                    toolbar.classList.remove('expanded');
+                    const toggleButton = document.querySelector('.toolbar-toggle');
+                    toggleButton.innerHTML = '⚙️';
+                    toggleButton.classList.remove('active');
+                }
+            });
+            
+            // 阻止工具栏内点击事件冒泡
+            document.querySelector('.toolbar').addEventListener('click', function(e) {
+                e.stopPropagation();
+            });
+        });
+    </script>
+
+    <!-- 添加图片放大模态框 -->
+    <div id="image-modal">
+        <span id="close-modal">&times;</span>
+        <div id="modal-image-container">
+            <img id="modal-image" src="" alt="Zoomed Image">
+        </div>
+    </div>
+</body>
+</html>
