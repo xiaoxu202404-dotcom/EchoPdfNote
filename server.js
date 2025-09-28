@@ -212,7 +212,7 @@ app.post('/upload-image', (req, res) => {
 
 // 根路径处理
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'PDF语音标注_贤独创.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // 保存笔记接口
