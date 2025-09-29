@@ -776,14 +776,22 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             z-index: 1001;
             display: none;
-            max-width: 300px;
-            max-height: 300px;
+            /* 智能尺寸限制：较小图片显示原尺寸，大图片适度缩放 */
+            max-width: min(80vw, 600px);
+            max-height: min(80vh, 500px);
         }
 
         .image-preview img {
             max-width: 100%;
             max-height: 100%;
             display: block;
+            /* 添加平滑过渡效果 */
+            transition: transform 0.2s ease;
+        }
+
+        /* 可选：添加悬停时的轻微缩放效果 */
+        .image-preview:hover img {
+            transform: scale(1.02);
         }
 
         .image-preview.show {
